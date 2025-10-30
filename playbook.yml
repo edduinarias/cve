@@ -1,6 +1,122 @@
+---
+- name: "CVE-2025-24813 - Recolección de datos (no destructivo por defecto)"
+  hosts: all
+  gather_facts: yes
+  vars:
+    http_scheme: "http"
+    http_port: 8080
+    path_probe: "/"
+    test_put: false
+    put_probe_path: "/cve-test-{{ inventory_hostname }}.txt"
+    put_probe_content: "cve-2025-24813-test-{{ inventory_hostname }}-{{ ansible_date_time.iso8601 }}"
+    tmp_json_dir: "/tmp/cve24813_reports"
+
+  tasks:
+    - name: "Crear directorio temporal en localhost para JSONs"
+      delegate_to: localhost
+      run_once: true
+      file:
+        path: "{{ tmp_json_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: "Detectar paquete Tomcat (dpkg/rpm)"
+      package_facts:
+      when: ansible_facts['pkg_mgr'] is defined
+
+    - name: "Detectar versión Tomcat por paquete"
+      set_fact:
+        tomcat_pkg_version: >-
+          {{
+            (ansible_facts.packages|default({})) |
+            dict2items |
+            selectattr('key','search','tomcat|apache-tomcat|tomcat9|tomcat10|tomcat11') |
+            map(attribute='value') |
+            list | first | default([])
+          }}
+      when: ansible_facts is defined
+
+    - name: "Intentar obtener versión vía $CATALINA_HOME/bin/version.sh"
+      shell: |
+        if [ -n "$CATALINA_HOME" ] && [ -x "$CATALINA_HOME/bin/version.sh" ]; then
+          "$CATALINA_HOME/bin/version.sh" | sed -n '1,20p'
+        else
+          echo "NO_VERSION_SH"
+        fi
+      register: catalina_version_out
+      changed_when: false
+      ignore_errors: true
+
+    - name: "Buscar web.xml y comprobar DefaultServlet readonly"
+      find:
+        paths:
+          - /etc/tomcat*
+          - /opt/tomcat*
+          - /usr/share/tomcat*
+          - /usr/local/tomcat*
+        patterns: "web.xml"
+        recurse: yes
+      register: found_webxml
+      ignore_errors: true
+
+    - name: "Examinar web.xml (readonly param)"
+      shell: "grep -E -n '<param-name>readonly</param-name>|<init-param>|<servlet-name>default' {{ item.path }} || true"
+      loop: "{{ found_webxml.files | default([]) }}"
+      register: webxml_greps
+      when: found_webxml is defined and found_webxml.files | length > 0
+      changed_when: false
+      ignore_errors: true
+
+    - name: "Comprobar archivos de sesión persistentes"
+      shell: |
+        for p in /var/lib/tomcat* /opt/tomcat* /usr/local/tomcat* /var/cache/tomcat* /var/tmp; do
+          if [ -e "$p" ]; then
+            find "$p" -type f -iname 'SESSIONS*' -maxdepth 4 2>/dev/null || true
+          fi
+        done
+      register: session_files
+      changed_when: false
+      ignore_errors: true
+
+    - name: "Consultar métodos HTTP soportados (OPTIONS)"
+      uri:
+        url: "{{ http_scheme }}://{{ ansible_host | default(inventory_hostname) }}:{{ http_port }}{{ path_probe }}"
+        method: OPTIONS
+        return_content: false
+        status_code: 200,204,301,302,401,403,405
+        timeout: 10
+      register: options_result
+      failed_when: false
+
+    - name: "Compilar reporte host local en variable"
+      set_fact:
+        cve24813_report: |
+          {
+            "host": "{{ inventory_hostname }}",
+            "ansible_host": "{{ ansible_host | default(inventory_hostname) }}",
+            "timestamp": "{{ ansible_date_time.iso8601 }}",
+            "os": "{{ ansible_facts['distribution'] | default(ansible_facts['os_family'] | default('unknown')) }} {{ ansible_facts['distribution_version'] | default('') }}",
+            "tomcat_pkg_version": {{ tomcat_pkg_version | to_nice_json }},
+            "catalina_version_raw": {{ catalina_version_out.stdout | to_nice_json }},
+            "webxml_matches": {{ (webxml_greps.results | default([]) | map(attribute='stdout') | list) | to_nice_json }},
+            "session_files_found": {{ session_files.stdout_lines | default([]) | to_nice_json }},
+            "options_allow_header": {{ (options_result.headers.Allow if options_result.headers is defined else '') | to_nice_json }},
+            "options_status": {{ options_result.status | default('') | to_nice_json }}
+          }
+      changed_when: false
+
+    - name: "Guardar JSON del reporte en localhost"
+      delegate_to: localhost
+      copy:
+        content: "{{ cve24813_report | from_yaml | to_nice_json }}"
+        dest: "{{ tmp_json_dir }}/report-{{ inventory_hostname }}.json"
+        mode: '0644'
+
+# ------------------------------
+# Consolidación en localhost
+# ------------------------------
 - name: "Generar informe HTML consolidado en localhost y moverlo a LNXADMUX01"
   hosts: localhost
-  connection: local
   gather_facts: false
   vars:
     tmp_json_dir: "/tmp/cve24813_reports"
@@ -20,7 +136,7 @@
     - name: "Cargar JSONs en lista"
       set_fact:
         reports_list: "{{ reports_list | default([]) + [ (lookup('file', item.path) | from_json ) ] }}"
-      loop: "{{ found_reports.files }}"
+      loop: "{{ found_reports.files | default([]) }}"
       changed_when: false
 
     - name: "Construir resumen de hosts y evaluar vulnerabilidad"
@@ -68,4 +184,4 @@
 
     - name: "Mostrar ubicación final"
       debug:
-        msg: "✅ Reporte generado en {{ output_html }} y copiado a /tmp/ en LNXADMUX01"
+        msg: "✅ Reporte generado: {{ output_html }} y copiado a /tmp/ en LNXADMUX01"
