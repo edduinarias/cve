@@ -1,0 +1,109 @@
+---
+- name: Validación CVE-2025-55752 en Apache Tomcat
+  hosts: tomcat
+  gather_facts: no
+  vars:
+    tomcat_bases:
+      - "/opt/tomcat"          # Ajusta/mergea con facts/inventario
+      - "/usr/local/tomcat"
+    rewrite_suspect_patterns:
+      - '%{QUERY_STRING}'
+  tasks:
+
+    - name: "Descubrir CATALINA_BASE dinámicamente (si existe)"
+      shell: "ls -1d {{ item }} 2>/dev/null || true"
+      loop: "{{ tomcat_bases }}"
+      register: base_dirs
+
+    - name: "Normalizar lista de bases detectadas"
+      set_fact:
+        found_bases: "{{ (base_dirs.results | map(attribute='stdout') | select('!=','')) | list }}"
+
+    - name: "Obtener versión Tomcat"
+      shell: "bash {{ item }}/bin/version.sh | tr -d '\\r'"
+      args: { warn: false }
+      loop: "{{ found_bases }}"
+      register: ver_out
+      changed_when: false
+      failed_when: false
+
+    - name: "Parsear versión y marcar AFECTADA"
+      set_fact:
+        tomcat_report: >-
+          {{
+            (tomcat_report | default([])) + [ {
+              'base': item.item,
+              'version_raw': item.stdout,
+              'affected': (
+                 (item.stdout is search('Server number:\\s*11\\.0\\.(?:0|[1-9]|10)'))
+                 or (item.stdout is search('Server number:\\s*10\\.1\\.(?:[0-9]|[1-3][0-9]|4[0-4])'))
+                 or (item.stdout is search('Server number:\\s*9\\.0\\.(?:0\\.?M?\\d+|[1-9]?[0-9]|10[0-8])'))
+              )
+            } ]
+          }}
+      loop: "{{ ver_out.results }}"
+
+    - name: "Detectar RewriteValve en server.xml/context.xml"
+      shell: |
+        grep -Hn "org.apache.catalina.valves.rewrite.RewriteValve" {{ item }}/conf/server.xml {{ item }}/conf/context.xml 2>/dev/null || true
+      loop: "{{ found_bases }}"
+      register: rv_hits
+      changed_when: false
+
+    - name: "Localizar archivos rewrite.config conocidos"
+      shell: |
+        find {{ item }} -type f \
+          \( -path "{{ item }}/conf/Catalina/*/rewrite.config" -o -path "{{ item }}/webapps/*/WEB-INF/rewrite.config" \) 2>/dev/null
+      loop: "{{ found_bases }}"
+      register: rw_files
+      changed_when: false
+
+    - name: "Marcar reglas sospechosas (uso de QUERY_STRING y backrefs %N)"
+      shell: |
+        awk '/RewriteCond/{c=1} /RewriteRule/{r=1} {print FILENAME":"NR":"$0} END{}' {{ item }} | \
+        egrep -i "QUERY_STRING|%[1-9]" || true
+      loop: "{{ (rw_files.results | map(attribute='stdout_lines') | sum(start=[])) | list }}"
+      register: suspect_rules
+      changed_when: false
+
+    - name: "Comprobar si PUT está habilitado (DefaultServlet readonly=false)"
+      shell: |
+        grep -Hn "<servlet-class>org.apache.catalina.servlets.DefaultServlet</servlet-class>" -n {{ base }}/conf/web.xml 2>/dev/null && \
+        awk 'BEGIN{p=0} /<servlet-class>org\.apache\.catalina\.servlets\.DefaultServlet<\/servlet-class>/{p=1}
+             p && /<param-name>readonly<\/param-name>/{getline; if($0 ~ /false/){print FILENAME":"NR":readonly=false"}; p=0}' {{ base }}/conf/web.xml 2>/dev/null || true
+      vars:
+        base: "{{ item }}"
+      loop: "{{ found_bases }}"
+      register: put_global
+      changed_when: false
+
+    - name: "Comprobar web.xml de cada app (readonly=false)"
+      shell: |
+        find {{ item }}/webapps -maxdepth 3 -type f -name web.xml -print0 2>/dev/null | \
+        xargs -0 grep -Hn "<param-name>readonly</param-name>" 2>/dev/null | \
+        while IFS=: read -r f l _; do
+          nxt=$(awk 'NR>'"$l"'{print; exit}' "$f"); echo "$f:$l:$nxt"; done | grep -i "false" || true
+      loop: "{{ found_bases }}"
+      register: put_apps
+      changed_when: false
+
+    - name: "Compilar informe de riesgo"
+      set_fact:
+        validation_report: |
+          {{
+            tomcat_report | items2dict(key_name='base', value_name='details')
+          }}
+      vars:
+        _unused: ""
+    - name: "Mostrar resumen"
+      debug:
+        msg:
+          bases: "{{ found_bases }}"
+          versions: "{{ tomcat_report }}"
+          rewrite_valve_refs: "{{ rv_hits.results | map(attribute='stdout') | list }}"
+          rewrite_files: "{{ rw_files.results | map(attribute='stdout_lines') | sum(start=[]) }}"
+          suspect_rules: "{{ suspect_rules.results | map(attribute='stdout') | select('!=','') | list }}"
+          put_readonly_false:
+            global: "{{ put_global.results | map(attribute='stdout') | select('!=','') | list }}"
+            apps:   "{{ put_apps.results   | map(attribute='stdout') | select('!=','') | list }}"
+``
