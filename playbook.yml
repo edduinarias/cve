@@ -144,7 +144,7 @@
         mode: '0644'
 
 - name: "Generar informe HTML consolidado en nodo de control"
-  hosts: localhost
+  hosts: LNXADMUX01
   gather_facts: false
   vars:
     tmp_json_dir: "/tmp/cve24813_reports"
