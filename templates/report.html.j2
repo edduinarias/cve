@@ -1,100 +1,64 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8"/>
-  <title>Informe CVE-2025-24813 - {{ ansible_date_time.date }}</title>
-  <style>
-    body { font-family: Arial, Helvetica, sans-serif; margin: 20px; color: #222; }
-    h1 { color: #a00; }
-    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
-    th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
-    th { background: #f2f2f2; text-align: left; }
-    .danger { background: #ffd6d6; padding:6px; border-radius:4px; display:inline-block; }
-    .ok { background: #e6ffea; padding:6px; border-radius:4px; display:inline-block; }
-    pre { background: #fafafa; padding: 8px; border: 1px solid #eee; overflow:auto; }
-  </style>
+<meta charset="utf-8"/>
+<title>Informe CVE-2025-24813 - {{ ansible_date_time.date }}</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; color: #222; }
+h1 { color: #a00; }
+table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
+th { background: #f2f2f2; text-align: left; }
+.vulnerable { background: #ffcccc; font-weight: bold; color: #900; }
+.safe { background: #d4ffd4; font-weight: bold; color: #060; }
+.unknown { background: #fff8c4; font-weight: bold; color: #665500; }
+pre { background: #fafafa; padding: 6px; border: 1px solid #eee; overflow:auto; }
+</style>
 </head>
 <body>
-  <h1>Informe CVE-2025-24813</h1>
-  <p>Generado: {{ ansible_date_time.iso8601 }}</p>
-  <p>Total hosts: {{ reports | length }}</p>
+<h1>Informe CVE-2025-24813</h1>
+<p>Generado: {{ ansible_date_time.iso8601 }}</p>
 
-  <h2>Resumen rápido: Hosts y versión de Tomcat</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Host</th>
-        <th>Tomcat (paquete) - versión detectada</th>
-        <th>Catalina (version.sh) - salida</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for s in hosts_summary %}
-      <tr>
-        <td>{{ s.host }}</td>
-        <td>
-          {% if s.tomcat_pkg_version_display and s.tomcat_pkg_version_display != 'unknown' %}
-            <pre>{{ s.tomcat_pkg_version_display }}</pre>
-          {% else %}
-            <pre>no detectada</pre>
-          {% endif %}
-        </td>
-        <td><pre>{{ s.catalina_raw | default('') }}</pre></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<h2>Resumen: Hosts y versión de Tomcat</h2>
+<table>
+<thead>
+<tr>
+<th>Host</th>
+<th>Versión Tomcat</th>
+<th>Resultado</th>
+<th>Salida de version.sh</th>
+</tr>
+</thead>
+<tbody>
+{% for s in hosts_summary %}
+<tr class="{% if s.vulnerability_status == 'Vulnerable' %}vulnerable{% elif s.vulnerability_status == 'No vulnerable' %}safe{% else %}unknown{% endif %}">
+<td>{{ s.host }}</td>
+<td>{{ s.tomcat_pkg_version_display }}</td>
+<td>{{ s.vulnerability_status }}</td>
+<td><pre>{{ s.catalina_raw }}</pre></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
 
-  {% for r in reports %}
-    <h2>{{ r.host }} ({{ r.ansible_host }})</h2>
-    <table>
-      <tr><th>Timestamp</th><td>{{ r.timestamp }}</td></tr>
-      <tr><th>S.O.</th><td>{{ r.os }}</td></tr>
-      <tr>
-        <th>Tomcat - paquete / versión (raw)</th>
-        <td><pre>{{ r.tomcat_pkg_version | to_nice_json }}</pre></td>
-      </tr>
-      <tr>
-        <th>Catalina version (version.sh si disponible)</th>
-        <td><pre>{{ r.catalina_version_raw }}</pre></td>
-      </tr>
-      <tr>
-        <th>Resultados web.xml (DefaultServlet readonly / init-param)</th>
-        <td><pre>{{ r.webxml_matches | to_nice_json }}</pre></td>
-      </tr>
-      <tr>
-        <th>Archivos de sesión encontrados</th>
-        <td><pre>{{ r.session_files_found | to_nice_json }}</pre></td>
-      </tr>
-      <tr>
-        <th>Respuesta OPTIONS (Allow header)</th>
-        <td>
-          <pre>{{ r.options_allow_header }}</pre>
-          {% if r.options_allow_header is string and ('PUT' in r.options_allow_header) %}
-            <div class="danger">PUT está permitido (riesgo aumentado)</div>
-          {% endif %}
-        </td>
-      </tr>
-      <tr>
-        <th>Prueba PUT habilitada</th>
-        <td>{{ r.test_put_enabled }}</td>
-      </tr>
-      <tr>
-        <th>Resultado PUT (si aplicó)</th>
-        <td><pre>{{ r.put_result | to_nice_json }}</pre></td>
-      </tr>
-      <tr>
-        <th>Resultado GET después de PUT (si aplicó)</th>
-        <td><pre>{{ r.get_after_put | to_nice_json }}</pre></td>
-      </tr>
-    </table>
-  {% endfor %}
+<h2>Detalles por host</h2>
+{% for r in reports %}
+<h3>{{ r.host }}</h3>
+<table>
+<tr><th>SO</th><td>{{ r.os }}</td></tr>
+<tr><th>Versión Tomcat</th><td><pre>{{ r.tomcat_pkg_version | to_nice_json }}</pre></td></tr>
+<tr><th>Catalina</th><td><pre>{{ r.catalina_version_raw }}</pre></td></tr>
+<tr><th>Archivos de sesión</th><td><pre>{{ r.session_files_found | to_nice_json }}</pre></td></tr>
+<tr><th>Métodos permitidos (OPTIONS)</th><td><pre>{{ r.options_allow_header }}</pre></td></tr>
+<tr><th>PUT habilitado</th><td>{{ r.test_put_enabled }}</td></tr>
+</table>
+{% endfor %}
 
-  <h3>Notas y recomendaciones</h3>
-  <ul>
-    <li>Si la versión de Tomcat está en los rangos vulnerables (9.0.0-M1 → 9.0.98, 10.1.0-M1 → 10.1.34, 11.0.0-M1 → 11.0.2) — parchear/actualizar inmediatamente.</li>
-    <li>Si DefaultServlet tiene <code>readonly=false</code> o PUT es permitido públicamente, mitigar: deshabilitar escritura del DefaultServlet, bloquear métodos PUT/DELETE en el proxy o actualizar Tomcat.</li>
-    <li>Si la persistencia de sesiones guarda en ficheros accesibles por webapps, cambiar configuración o asegurar que la ruta no sea servida por HTTP.</li>
-  </ul>
+<h3>Rangos vulnerables conocidos</h3>
+<ul>
+<li>Tomcat 9.0.0-M1 → 9.0.98</li>
+<li>Tomcat 10.1.0-M1 → 10.1.34</li>
+<li>Tomcat 11.0.0-M1 → 11.0.2</li>
+</ul>
 </body>
 </html>
