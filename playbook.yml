@@ -1,144 +1,109 @@
 ---
-- name: "CVE-2025-24813 - Recolección de datos (no destructivo por defecto)"
-  hosts: all
-  gather_facts: yes
+- name: Validación CVE-2025-55752 en Apache Tomcat
+  hosts: tomcat
+  gather_facts: no
   vars:
-    http_scheme: "http"
-    http_port: 8080
-    path_probe: "/"
-    test_put: false
-    put_probe_path: "/cve-test-{{ inventory_hostname }}.txt"
-    put_probe_content: "cve-2025-24813-test-{{ inventory_hostname }}-{{ ansible_date_time.iso8601 }}"
-    tmp_json_dir: "/tmp/cve24813_reports"
-
+    tomcat_bases:
+      - "/opt/tomcat"          # Ajusta/mergea con facts/inventario
+      - "/usr/local/tomcat"
+    rewrite_suspect_patterns:
+      - '%{QUERY_STRING}'
   tasks:
-    - name: "Crear directorio temporal en nodo de control para JSONs (delegado)"
-      delegate_to: LNXADMUX01
-      run_once: true
-      file:
-        path: "{{ tmp_json_dir }}"
-        state: directory
-        mode: '0755'
 
-    - name: "Detectar paquete Tomcat (dpkg)"
-      package_facts:
-      when: ansible_facts['pkg_mgr'] is defined
+    - name: "Descubrir CATALINA_BASE dinámicamente (si existe)"
+      shell: "ls -1d {{ item }} 2>/dev/null || true"
+      loop: "{{ tomcat_bases }}"
+      register: base_dirs
 
-    - name: "Detectar versión Tomcat por package (dpkg/rpm)"
+    - name: "Normalizar lista de bases detectadas"
       set_fact:
-        tomcat_pkg_version: >-
-          {{
-            (ansible_facts.packages|default({})) |
-            dict2items |
-            selectattr('key','search','tomcat|apache-tomcat|tomcat9|tomcat10|tomcat11') |
-            map(attribute='value') |
-            list | first | default([])
-          }}
-      when: ansible_facts is defined
+        found_bases: "{{ (base_dirs.results | map(attribute='stdout') | select('!=','')) | list }}"
 
-    - name: "Intentar obtener version vía $CATALINA_HOME/bin/version.sh"
-      shell: |
-        if [ -n "$CATALINA_HOME" ] && [ -x "$CATALINA_HOME/bin/version.sh" ]; then
-          "$CATALINA_HOME/bin/version.sh" | sed -n '1,20p'
-        else
-          echo "NO_VERSION_SH"
-        fi
-      register: catalina_version_out
+    - name: "Obtener versión Tomcat"
+      shell: "bash {{ item }}/bin/version.sh | tr -d '\\r'"
+      args: { warn: false }
+      loop: "{{ found_bases }}"
+      register: ver_out
       changed_when: false
-      ignore_errors: true
-
-    - name: "Buscar web.xml y comprobar DefaultServlet readonly en ubicaciones comunes"
-      find:
-        paths:
-          - /etc/tomcat*
-          - /opt/tomcat*
-          - /usr/share/tomcat*
-          - /usr/local/tomcat*
-          - "{{ ansible_env.HOME | default('/root') }}/.tomcat*"
-        patterns: "web.xml"
-        file_type: file
-        recurse: yes
-      register: found_webxml
-      ignore_errors: true
-
-    - name: "Examinar web.xml (si hay resultados) en busca de readonly param"
-      shell: "grep -E -n '<param-name>readonly</param-name>|<init-param>|<servlet-name>default' {{ item.path }} || true"
-      loop: "{{ found_webxml.files | default([]) }}"
-      register: webxml_greps
-      when: found_webxml is defined and found_webxml.files | length > 0
-      changed_when: false
-      ignore_errors: true
-
-    - name: "Comprobar si existe persistence de sesiones en filesystem (busqueda tipica)"
-      shell: |
-        for p in /var/lib/tomcat* /opt/tomcat* /usr/local/tomcat* /var/cache/tomcat* /var/tmp; do
-          if [ -e "$p" ]; then
-            find "$p" -type f -iname 'SESSIONS*' -maxdepth 4 2>/dev/null || true
-          fi
-        done
-      register: session_files
-      changed_when: false
-      ignore_errors: true
-
-    - name: "Consultar métodos HTTP soportados (OPTIONS) usando uri module"
-      uri:
-        url: "{{ http_scheme }}://{{ ansible_host | default(inventory_hostname) }}:{{ http_port }}{{ path_probe }}"
-        method: OPTIONS
-        return_content: false
-        status_code: 200,204,301,302,401,403,405
-        timeout: 10
-      register: options_result
       failed_when: false
 
-    - name: "(Opcional) Intento controlado de PUT y GET (si test_put=true) - ADVERTENCIA"
-      when: test_put | bool
-      block:
-        - name: "Ejecutar PUT de prueba"
-          uri:
-            url: "{{ http_scheme }}://{{ ansible_host | default(inventory_hostname) }}:{{ http_port }}{{ put_probe_path }}"
-            method: PUT
-            body: "{{ put_probe_content }}"
-            status_code: 200,201,204,401,403,405
-            return_content: false
-            timeout: 10
-          register: put_result
-          failed_when: false
-
-        - name: "Intentar leer el archivo PUT (GET)"
-          uri:
-            url: "{{ http_scheme }}://{{ ansible_host | default(inventory_hostname) }}:{{ http_port }}{{ put_probe_path }}"
-            method: GET
-            return_content: true
-            status_code: 200,401,403,404
-            timeout: 10
-          register: get_after_put
-          failed_when: false
-
-    - name: "Compilar reporte host local en variable"
+    - name: "Parsear versión y marcar AFECTADA"
       set_fact:
-        cve24813_report: |
-          {
-            "host": "{{ inventory_hostname }}",
-            "ansible_host": "{{ ansible_host | default(inventory_hostname) }}",
-            "timestamp": "{{ ansible_date_time.iso8601 }}",
-            "os": "{{ ansible_facts['distribution'] | default(ansible_facts['os_family'] | default('unknown')) }} {{ ansible_facts['distribution_version'] | default('') }}",
-            "tomcat_pkg_version": {{ tomcat_pkg_version | to_nice_json }},
-            "catalina_version_raw": {{ catalina_version_out.stdout | to_nice_json }},
-            "webxml_matches": {{ (webxml_greps.results | default([]) | map(attribute='stdout') | list) | to_nice_json }},
-            "session_files_found": {{ session_files.stdout_lines | default([]) | to_nice_json }},
-            "options_allow_header": {{ (options_result.headers.Allow if options_result.headers is defined else '') | to_nice_json }},
-            "options_status": {{ options_result.status | default('') | to_nice_json }},
-            "test_put_enabled": {{ test_put | bool | to_nice_json }},
-            "put_result": {{ (put_result | default({})) | to_nice_json }},
-            "get_after_put": {{ (get_after_put | default({})) | to_nice_json }}
-          }
+        tomcat_report: >-
+          {{
+            (tomcat_report | default([])) + [ {
+              'base': item.item,
+              'version_raw': item.stdout,
+              'affected': (
+                 (item.stdout is search('Server number:\\s*11\\.0\\.(?:0|[1-9]|10)'))
+                 or (item.stdout is search('Server number:\\s*10\\.1\\.(?:[0-9]|[1-3][0-9]|4[0-4])'))
+                 or (item.stdout is search('Server number:\\s*9\\.0\\.(?:0\\.?M?\\d+|[1-9]?[0-9]|10[0-8])'))
+              )
+            } ]
+          }}
+      loop: "{{ ver_out.results }}"
+
+    - name: "Detectar RewriteValve en server.xml/context.xml"
+      shell: |
+        grep -Hn "org.apache.catalina.valves.rewrite.RewriteValve" {{ item }}/conf/server.xml {{ item }}/conf/context.xml 2>/dev/null || true
+      loop: "{{ found_bases }}"
+      register: rv_hits
       changed_when: false
 
-    - name: "Guardar JSON del reporte en el nodo de control"
-      delegate_to: LNXADMUX01
-      copy:
-        content: "{{ cve24813_report | from_yaml | to_nice_json }}"
-        dest: "{{ tmp_json_dir }}/report-{{ inventory_hostname }}.json"
-        mode: '0644'
+    - name: "Localizar archivos rewrite.config conocidos"
+      shell: |
+        find {{ item }} -type f \
+          \( -path "{{ item }}/conf/Catalina/*/rewrite.config" -o -path "{{ item }}/webapps/*/WEB-INF/rewrite.config" \) 2>/dev/null
+      loop: "{{ found_bases }}"
+      register: rw_files
+      changed_when: false
 
-# -----------
+    - name: "Marcar reglas sospechosas (uso de QUERY_STRING y backrefs %N)"
+      shell: |
+        awk '/RewriteCond/{c=1} /RewriteRule/{r=1} {print FILENAME":"NR":"$0} END{}' {{ item }} | \
+        egrep -i "QUERY_STRING|%[1-9]" || true
+      loop: "{{ (rw_files.results | map(attribute='stdout_lines') | sum(start=[])) | list }}"
+      register: suspect_rules
+      changed_when: false
+
+    - name: "Comprobar si PUT está habilitado (DefaultServlet readonly=false)"
+      shell: |
+        grep -Hn "<servlet-class>org.apache.catalina.servlets.DefaultServlet</servlet-class>" -n {{ base }}/conf/web.xml 2>/dev/null && \
+        awk 'BEGIN{p=0} /<servlet-class>org\.apache\.catalina\.servlets\.DefaultServlet<\/servlet-class>/{p=1}
+             p && /<param-name>readonly<\/param-name>/{getline; if($0 ~ /false/){print FILENAME":"NR":readonly=false"}; p=0}' {{ base }}/conf/web.xml 2>/dev/null || true
+      vars:
+        base: "{{ item }}"
+      loop: "{{ found_bases }}"
+      register: put_global
+      changed_when: false
+
+    - name: "Comprobar web.xml de cada app (readonly=false)"
+      shell: |
+        find {{ item }}/webapps -maxdepth 3 -type f -name web.xml -print0 2>/dev/null | \
+        xargs -0 grep -Hn "<param-name>readonly</param-name>" 2>/dev/null | \
+        while IFS=: read -r f l _; do
+          nxt=$(awk 'NR>'"$l"'{print; exit}' "$f"); echo "$f:$l:$nxt"; done | grep -i "false" || true
+      loop: "{{ found_bases }}"
+      register: put_apps
+      changed_when: false
+
+    - name: "Compilar informe de riesgo"
+      set_fact:
+        validation_report: |
+          {{
+            tomcat_report | items2dict(key_name='base', value_name='details')
+          }}
+      vars:
+        _unused: ""
+    - name: "Mostrar resumen"
+      debug:
+        msg:
+          bases: "{{ found_bases }}"
+          versions: "{{ tomcat_report }}"
+          rewrite_valve_refs: "{{ rv_hits.results | map(attribute='stdout') | list }}"
+          rewrite_files: "{{ rw_files.results | map(attribute='stdout_lines') | sum(start=[]) }}"
+          suspect_rules: "{{ suspect_rules.results | map(attribute='stdout') | select('!=','') | list }}"
+          put_readonly_false:
+            global: "{{ put_global.results | map(attribute='stdout') | select('!=','') | list }}"
+            apps:   "{{ put_apps.results   | map(attribute='stdout') | select('!=','') | list }}"
+``
