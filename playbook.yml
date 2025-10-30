@@ -116,7 +116,7 @@
 # Consolidación en localhost
 # ------------------------------
 - name: "Generar informe HTML consolidado en localhost y moverlo a LNXADMUX01"
-  hosts: localhost
+  hosts: LNXADMUX01
   gather_facts: false
   vars:
     tmp_json_dir: "/tmp/cve24813_reports"
