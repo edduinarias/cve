@@ -106,4 +106,3 @@
           put_readonly_false:
             global: "{{ put_global.results | map(attribute='stdout') | select('!=','') | list }}"
             apps:   "{{ put_apps.results   | map(attribute='stdout') | select('!=','') | list }}"
-``
