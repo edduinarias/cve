@@ -135,14 +135,14 @@
       changed_when: false
 
     - name: "Guardar JSON del reporte en el nodo de control"
-      delegate_to: localhost
+      delegate_to: LNXADMUX01
       copy:
         content: "{{ cve24813_report | from_yaml | to_nice_json }}"
         dest: "{{ tmp_json_dir }}/report-{{ inventory_hostname }}.json"
         mode: '0644'
 
 - name: "Generar informe HTML consolidado en nodo de control"
-  hosts: localhost
+  hosts: LNXADMUX01
   gather_facts: false
   vars:
     tmp_json_dir: "/tmp/cve24813_reports"
