@@ -1,129 +1,35 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Reporte CVE-2025-24813 - Tomcat</title>
+  <meta charset="utf-8">
+  <title>Reporte CVE-2025-24813</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #f9fafb;
-      color: #222;
-      margin: 40px;
-    }
-    h1, h2 {
-      text-align: center;
-    }
-    h1 {
-      color: #0d47a1;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 20px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-    }
-    th, td {
-      border: 1px solid #ddd;
-      padding: 8px 12px;
-      text-align: left;
-    }
-    th {
-      background-color: #0d47a1;
-      color: white;
-    }
-    tr:nth-child(even) { background-color: #f2f2f2; }
-
-    .vulnerable {
-      background-color: #ffebee;
-      color: #b71c1c;
-      font-weight: bold;
-    }
-    .no-vulnerable {
-      background-color: #e8f5e9;
-      color: #1b5e20;
-      font-weight: bold;
-    }
-    .indeterminado {
-      background-color: #f3f4f6;
-      color: #555;
-      font-weight: bold;
-    }
-
-    .details {
-      margin-top: 40px;
-    }
-    pre {
-      background: #f5f5f5;
-      padding: 10px;
-      border-radius: 6px;
-      overflow-x: auto;
-      font-size: 13px;
-    }
-    footer {
-      text-align: center;
-      margin-top: 50px;
-      font-size: 12px;
-      color: #666;
-    }
+    body { font-family: Arial, sans-serif; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #999; padding: 6px; text-align: left; }
+    th { background-color: #eee; }
+    .vulnerable { background-color: #ffdddd; }
+    .no-vulnerable { background-color: #ddffdd; }
   </style>
 </head>
 <body>
-  <h1>Reporte Consolidado - CVE-2025-24813</h1>
-  <h2>Evaluación de vulnerabilidad en instancias Apache Tomcat</h2>
-
+  <h2>Reporte Consolidado - CVE-2025-24813</h2>
   <table>
-    <thead>
-      <tr>
-        <th>Host</th>
-        <th>Versión Tomcat (paquete)</th>
-        <th>Versión Catalina (detectada)</th>
-        <th>Estado</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for host in hosts_summary %}
-      <tr class="{% if host.vulnerability_status == 'Vulnerable' %}vulnerable{% elif host.vulnerability_status == 'No vulnerable' %}no-vulnerable{% else %}indeterminado{% endif %}">
-        <td>{{ host.host }}</td>
-        <td>{{ host.tomcat_pkg_version_display | default('unknown') }}</td>
-        <td>{{ host.catalina_raw | default('N/A') | replace('\n','<br>') | safe }}</td>
-        <td>{{ host.vulnerability_status }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <div class="details">
-    <h2>Detalles por host</h2>
-    {% for r in reports %}
-      <h3>Host: {{ r.host }}</h3>
-      <ul>
-        <li><strong>OS:</strong> {{ r.os }}</li>
-        <li><strong>HTTP Status (OPTIONS):</strong> {{ r.options_status }}</li>
-        <li><strong>Allow Header:</strong> {{ r.options_allow_header }}</li>
-      </ul>
-      <p><strong>Version.sh Output:</strong></p>
-      <pre>{{ r.catalina_version_raw }}</pre>
-
-      {% if r.webxml_matches and r.webxml_matches | length > 0 %}
-      <p><strong>Coincidencias en web.xml:</strong></p>
-      <pre>{{ r.webxml_matches | join('\n---\n') }}</pre>
-      {% else %}
-      <p><em>No se encontraron coincidencias en web.xml</em></p>
-      {% endif %}
-
-      {% if r.session_files_found and r.session_files_found | length > 0 %}
-      <p><strong>Archivos de sesión detectados:</strong></p>
-      <pre>{{ r.session_files_found | join('\n') }}</pre>
-      {% else %}
-      <p><em>No se detectaron archivos de sesión persistentes</em></p>
-      {% endif %}
-
-      <hr>
+    <tr>
+      <th>Host</th>
+      <th>Versión Tomcat</th>
+      <th>Estado</th>
+      <th>Salida catalina.sh</th>
+    </tr>
+    {% for h in hosts_summary %}
+    <tr class="{{ 'vulnerable' if h.vulnerability_status == 'Vulnerable' else 'no-vulnerable' }}">
+      <td>{{ h.host }}</td>
+      <td>{{ h.tomcat_pkg_version_display }}</td>
+      <td>{{ h.vulnerability_status }}</td>
+      <td><pre>{{ h.catalina_raw }}</pre></td>
+    </tr>
     {% endfor %}
-  </div>
-
-  <footer>
-    Generado automáticamente por Ansible - {{ lookup('pipe', 'date') }}
-  </footer>
+  </table>
+  <p><i>Generado automáticamente con Ansible</i></p>
 </body>
 </html>
