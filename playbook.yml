@@ -141,45 +141,4 @@
         dest: "{{ tmp_json_dir }}/report-{{ inventory_hostname }}.json"
         mode: '0644'
 
-- name: "Generar informe HTML consolidado en nodo de control"
-  hosts: LNXADMUX01
-  gather_facts: false
-  vars:
-    tmp_json_dir: "/tmp/cve24813_reports"
-    output_html: "/tmp/cve24813_report_{{ ansible_date_time.date }}.html"
-  tasks:
-    - name: "Leer todos los JSONs generados"
-      find:
-        paths: "{{ tmp_json_dir }}"
-        patterns: "report-*.json"
-      register: found_reports
-
-    - name: "Cargar JSONs a variable (lista)"
-      set_fact:
-        reports_list: "{{ reports_list | default([]) + [ (lookup('file', item.path) | from_json ) ] }}"
-      loop: "{{ found_reports.files | default([]) }}"
-      changed_when: false
-
-    - name: "Construir resumen de hosts y versiones Tomcat"
-      set_fact:
-        summary_hosts_versions: "{{ summary_hosts_versions | default([]) + [ {'host': item.host,
-                                                                            'tomcat_pkg_version_raw': (item.tomcat_pkg_version | default([])),
-                                                                            'tomcat_pkg_version_display': ( (item.tomcat_pkg_version | default([]) | first) | default('unknown') ),
-                                                                            'catalina_raw': (item.catalina_version_raw | default('')) } ] }}"
-      loop: "{{ reports_list }}"
-      loop_control:
-        label: "{{ item.host }}"
-      changed_when: false
-
-    - name: "Generar HTML a partir de template"
-      template:
-        src: "templates/report.html.j2"
-        dest: "{{ output_html }}"
-        mode: '0644'
-      vars:
-        reports: "{{ reports_list | default([]) }}"
-        hosts_summary: "{{ summary_hosts_versions | default([]) }}"
-
-    - name: "Notificar ubicación del informe"
-      debug:
-        msg: "Informe HTML generado en {{ output_html }} (contiene {{ reports_list|length }} hosts)"
+# -----------
