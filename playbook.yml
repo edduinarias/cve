@@ -4,9 +4,9 @@
   gather_facts: yes
   vars:
     http_scheme: "http"
-    http_port: 8080            # cambia si tus Tomcat escuchan en otro puerto (ej: 80, 8080, 8443)
-    path_probe: "/"            # ruta base para OPTIONS / PUT probe
-    test_put: false            # por defecto NO realiza PUT de prueba. Poner true solo con permiso.
+    http_port: 8080
+    path_probe: "/"
+    test_put: false
     put_probe_path: "/cve-test-{{ inventory_hostname }}.txt"
     put_probe_content: "cve-2025-24813-test-{{ inventory_hostname }}-{{ ansible_date_time.iso8601 }}"
     tmp_json_dir: "/tmp/cve24813_reports"
@@ -71,8 +71,6 @@
 
     - name: "Comprobar si existe persistence de sesiones en filesystem (busqueda tipica)"
       shell: |
-        # rutas comunes y patrón de sesiones de Tomcat
-        paths="/var/lib/tomcat* /opt/tomcat* /usr/local/tomcat* /var/lib/ | true"
         for p in /var/lib/tomcat* /opt/tomcat* /usr/local/tomcat* /var/cache/tomcat* /var/tmp; do
           if [ -e "$p" ]; then
             find "$p" -type f -iname 'SESSIONS*' -maxdepth 4 2>/dev/null || true
@@ -144,7 +142,7 @@
         mode: '0644'
 
 - name: "Generar informe HTML consolidado en nodo de control"
-  hosts: LNXADMUX01
+  hosts: localhost
   gather_facts: false
   vars:
     tmp_json_dir: "/tmp/cve24813_reports"
@@ -162,6 +160,17 @@
       loop: "{{ found_reports.files | default([]) }}"
       changed_when: false
 
+    - name: "Construir resumen de hosts y versiones Tomcat"
+      set_fact:
+        summary_hosts_versions: "{{ summary_hosts_versions | default([]) + [ {'host': item.host,
+                                                                            'tomcat_pkg_version_raw': (item.tomcat_pkg_version | default([])),
+                                                                            'tomcat_pkg_version_display': ( (item.tomcat_pkg_version | default([]) | first) | default('unknown') ),
+                                                                            'catalina_raw': (item.catalina_version_raw | default('')) } ] }}"
+      loop: "{{ reports_list }}"
+      loop_control:
+        label: "{{ item.host }}"
+      changed_when: false
+
     - name: "Generar HTML a partir de template"
       template:
         src: "templates/report.html.j2"
@@ -169,6 +178,7 @@
         mode: '0644'
       vars:
         reports: "{{ reports_list | default([]) }}"
+        hosts_summary: "{{ summary_hosts_versions | default([]) }}"
 
     - name: "Notificar ubicación del informe"
       debug:
