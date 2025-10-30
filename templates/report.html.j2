@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <title>Informe CVE-2025-24813 - {{ ansible_date_time.date }}</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 20px; color: #222; }
+    h1 { color: #a00; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
+    th { background: #f2f2f2; text-align: left; }
+    .danger { background: #ffd6d6; }
+    .ok { background: #e6ffea; }
+    pre { background: #fafafa; padding: 8px; border: 1px solid #eee; overflow:auto; }
+  </style>
+</head>
+<body>
+  <h1>Informe CVE-2025-24813</h1>
+  <p>Generado: {{ ansible_date_time.iso8601 }}</p>
+  <p>Total hosts: {{ reports | length }}</p>
+
+  {% for r in reports %}
+    <h2>{{ r.host }} ({{ r.ansible_host }})</h2>
+    <table>
+      <tr><th>Timestamp</th><td>{{ r.timestamp }}</td></tr>
+      <tr><th>S.O.</th><td>{{ r.os }}</td></tr>
+      <tr>
+        <th>Tomcat - paquete / versión</th>
+        <td><pre>{{ r.tomcat_pkg_version | to_nice_json }}</pre></td>
+      </tr>
+      <tr>
+        <th>Catalina version (version.sh si disponible)</th>
+        <td><pre>{{ r.catalina_version_raw }}</pre></td>
+      </tr>
+      <tr>
+        <th>Resultados web.xml (DefaultServlet readonly / init-param)</th>
+        <td><pre>{{ r.webxml_matches | to_nice_json }}</pre></td>
+      </tr>
+      <tr>
+        <th>Archivos de sesión encontrados</th>
+        <td><pre>{{ r.session_files_found | to_nice_json }}</pre></td>
+      </tr>
+      <tr>
+        <th>Respuesta OPTIONS (Allow header)</th>
+        <td>
+          <pre>{{ r.options_allow_header }}</pre>
+          {% if r.options_allow_header is string and ('PUT' in r.options_allow_header) %}
+            <div class="danger">PUT está permitido (riesgo aumentado)</div>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <th>Prueba PUT habilitada</th>
+        <td>{{ r.test_put_enabled }}</td>
+      </tr>
+      <tr>
+        <th>Resultado PUT (si aplicó)</th>
+        <td><pre>{{ r.put_result | to_nice_json }}</pre></td>
+      </tr>
+      <tr>
+        <th>Resultado GET después de PUT (si aplicó)</th>
+        <td><pre>{{ r.get_after_put | to_nice_json }}</pre></td>
+      </tr>
+    </table>
+  {% endfor %}
+
+  <h3>Notas y recomendaciones</h3>
+  <ul>
+    <li>Si la versión de Tomcat está en los rangos vulnerables (9.0.0-M1 → 9.0.98, 10.1.0-M1 → 10.1.34, 11.0.0-M1 → 11.0.2) — parchear/actualizar inmediatamente.</li>
+    <li>Si DefaultServlet tiene <code>readonly=false</code> o PUT es permitido públicamente, mitigar: deshabilitar escritura del DefaultServlet, bloquear métodos PUT/DELETE en el proxy o actualizar Tomcat.</li>
+    <li>Si la persistencia de sesiones guarda en ficheros accesibles por webapps, cambiar configuración o asegurar que la ruta no sea servida por HTTP.</li>
+  </ul>
+</body>
+</html>
