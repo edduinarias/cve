@@ -1,64 +1,129 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="utf-8"/>
-<title>Informe CVE-2025-24813 - {{ ansible_date_time.date }}</title>
-<style>
-body { font-family: Arial, sans-serif; margin: 20px; color: #222; }
-h1 { color: #a00; }
-table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
-th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
-th { background: #f2f2f2; text-align: left; }
-.vulnerable { background: #ffcccc; font-weight: bold; color: #900; }
-.safe { background: #d4ffd4; font-weight: bold; color: #060; }
-.unknown { background: #fff8c4; font-weight: bold; color: #665500; }
-pre { background: #fafafa; padding: 6px; border: 1px solid #eee; overflow:auto; }
-</style>
+  <meta charset="UTF-8">
+  <title>Reporte CVE-2025-24813 - Tomcat</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f9fafb;
+      color: #222;
+      margin: 40px;
+    }
+    h1, h2 {
+      text-align: center;
+    }
+    h1 {
+      color: #0d47a1;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px 12px;
+      text-align: left;
+    }
+    th {
+      background-color: #0d47a1;
+      color: white;
+    }
+    tr:nth-child(even) { background-color: #f2f2f2; }
+
+    .vulnerable {
+      background-color: #ffebee;
+      color: #b71c1c;
+      font-weight: bold;
+    }
+    .no-vulnerable {
+      background-color: #e8f5e9;
+      color: #1b5e20;
+      font-weight: bold;
+    }
+    .indeterminado {
+      background-color: #f3f4f6;
+      color: #555;
+      font-weight: bold;
+    }
+
+    .details {
+      margin-top: 40px;
+    }
+    pre {
+      background: #f5f5f5;
+      padding: 10px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 13px;
+    }
+    footer {
+      text-align: center;
+      margin-top: 50px;
+      font-size: 12px;
+      color: #666;
+    }
+  </style>
 </head>
 <body>
-<h1>Informe CVE-2025-24813</h1>
-<p>Generado: {{ ansible_date_time.iso8601 }}</p>
+  <h1>Reporte Consolidado - CVE-2025-24813</h1>
+  <h2>Evaluación de vulnerabilidad en instancias Apache Tomcat</h2>
 
-<h2>Resumen: Hosts y versión de Tomcat</h2>
-<table>
-<thead>
-<tr>
-<th>Host</th>
-<th>Versión Tomcat</th>
-<th>Resultado</th>
-<th>Salida de version.sh</th>
-</tr>
-</thead>
-<tbody>
-{% for s in hosts_summary %}
-<tr class="{% if s.vulnerability_status == 'Vulnerable' %}vulnerable{% elif s.vulnerability_status == 'No vulnerable' %}safe{% else %}unknown{% endif %}">
-<td>{{ s.host }}</td>
-<td>{{ s.tomcat_pkg_version_display }}</td>
-<td>{{ s.vulnerability_status }}</td>
-<td><pre>{{ s.catalina_raw }}</pre></td>
-</tr>
-{% endfor %}
-</tbody>
-</table>
+  <table>
+    <thead>
+      <tr>
+        <th>Host</th>
+        <th>Versión Tomcat (paquete)</th>
+        <th>Versión Catalina (detectada)</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for host in hosts_summary %}
+      <tr class="{% if host.vulnerability_status == 'Vulnerable' %}vulnerable{% elif host.vulnerability_status == 'No vulnerable' %}no-vulnerable{% else %}indeterminado{% endif %}">
+        <td>{{ host.host }}</td>
+        <td>{{ host.tomcat_pkg_version_display | default('unknown') }}</td>
+        <td>{{ host.catalina_raw | default('N/A') | replace('\n','<br>') | safe }}</td>
+        <td>{{ host.vulnerability_status }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 
-<h2>Detalles por host</h2>
-{% for r in reports %}
-<h3>{{ r.host }}</h3>
-<table>
-<tr><th>SO</th><td>{{ r.os }}</td></tr>
-<tr><th>Versión Tomcat</th><td><pre>{{ r.tomcat_pkg_version | to_nice_json }}</pre></td></tr>
-<tr><th>Catalina</th><td><pre>{{ r.catalina_version_raw }}</pre></td></tr>
-<tr><th>Archivos de sesión</th><td><pre>{{ r.session_files_found | to_nice_json }}</pre></td></tr>
-<tr><th>Métodos permitidos (OPTIONS)</th><td><pre>{{ r.options_allow_header }}</pre></td></tr>
-<tr><th>PUT habilitado</th><td>{{ r.test_put_enabled }}</td></tr>
-</table>
-{% endfor %}
+  <div class="details">
+    <h2>Detalles por host</h2>
+    {% for r in reports %}
+      <h3>Host: {{ r.host }}</h3>
+      <ul>
+        <li><strong>OS:</strong> {{ r.os }}</li>
+        <li><strong>HTTP Status (OPTIONS):</strong> {{ r.options_status }}</li>
+        <li><strong>Allow Header:</strong> {{ r.options_allow_header }}</li>
+      </ul>
+      <p><strong>Version.sh Output:</strong></p>
+      <pre>{{ r.catalina_version_raw }}</pre>
 
-<h3>Rangos vulnerables conocidos</h3>
-<ul>
-<li>Tomcat 9.0.0-M1 → 9.0.98</li>
-<li>Tomcat 10.1.0-M1 → 10.1.34</li>
-<li>Tomcat 11.0.0-M1 → 11.0.2</li>
-</ul>
+      {% if r.webxml_matches and r.webxml_matches | length > 0 %}
+      <p><strong>Coincidencias en web.xml:</strong></p>
+      <pre>{{ r.webxml_matches | join('\n---\n') }}</pre>
+      {% else %}
+      <p><em>No se encontraron coincidencias en web.xml</em></p>
+      {% endif %}
+
+      {% if r.session_files_found and r.session_files_found | length > 0 %}
+      <p><strong>Archivos de sesión detectados:</strong></p>
+      <pre>{{ r.session_files_found | join('\n') }}</pre>
+      {% else %}
+      <p><em>No se detectaron archivos de sesión persistentes</em></p>
+      {% endif %}
+
+      <hr>
+    {% endfor %}
+  </div>
+
+  <footer>
+    Generado automáticamente por Ansible - {{ lookup('pipe', 'date') }}
+  </footer>
 </body>
 </html>
