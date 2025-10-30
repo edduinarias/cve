@@ -13,7 +13,7 @@
 
   tasks:
     - name: "Crear directorio temporal en nodo de control para JSONs (delegado)"
-      delegate_to: localhost
+      delegate_to: LNXADMUX01
       run_once: true
       file:
         path: "{{ tmp_json_dir }}"
