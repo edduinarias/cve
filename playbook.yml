@@ -139,33 +139,39 @@
       loop: "{{ found_reports.files | default([]) }}"
       changed_when: false
 
-    - name: "Construir resumen de hosts y evaluar vulnerabilidad"
+     - name: "Construir resumen de hosts y evaluar vulnerabilidad"
       set_fact:
         summary_hosts_versions: "{{ summary_hosts_versions | default([]) + [ {
           'host': item.host,
-          'tomcat_pkg_version_display': ((item.tomcat_pkg_version | default([]) | first) | default('unknown')),
+          'tomcat_pkg_version_display': (
+            item.tomcat_pkg_version | default([]) | length > 0
+          ) | ternary(
+            (item.tomcat_pkg_version | first),
+            'unknown'
+          ),
           'catalina_raw': (item.catalina_version_raw | default('')),
-          'vulnerability_status':
-            (
-              (
-                (item.tomcat_pkg_version | default([]) | first | regex_search('9\\.0\\.(\\d+)', '\\1') | first | int) is defined and
-                ((item.tomcat_pkg_version | first | regex_search('9\\.0\\.(\\d+)', '\\1') | first | int) <= 98)
-              ) or
-              (
-                (item.tomcat_pkg_version | default([]) | first | regex_search('10\\.1\\.(\\d+)', '\\1') | first | int) is defined and
-                ((item.tomcat_pkg_version | first | regex_search('10\\.1\\.(\\d+)', '\\1') | first | int) <= 34)
-              ) or
-              (
-                (item.tomcat_pkg_version | default([]) | first | regex_search('11\\.0\\.(\\d+)', '\\1') | first | int) is defined and
-                ((item.tomcat_pkg_version | first | regex_search('11\\.0\\.(\\d+)', '\\1') | first | int) <= 2)
-              )
-            )
-            | ternary('Vulnerable', ((item.tomcat_pkg_version | first) is defined) | ternary('No vulnerable','Indeterminado'))
+          'vulnerability_status': >-
+            {% set pkgver = (item.tomcat_pkg_version | default([]) | first | default('')) %}
+            {% if pkgver is search('9\\.0\\.(\\d+)') %}
+              {% set subver = (pkgver | regex_search('9\\.0\\.(\\d+)', '\\1') | first | default('0') | int) %}
+              {{ 'Vulnerable' if subver <= 98 else 'No vulnerable' }}
+            {% elif pkgver is search('10\\.1\\.(\\d+)') %}
+              {% set subver = (pkgver | regex_search('10\\.1\\.(\\d+)', '\\1') | first | default('0') | int) %}
+              {{ 'Vulnerable' if subver <= 34 else 'No vulnerable' }}
+            {% elif pkgver is search('11\\.0\\.(\\d+)') %}
+              {% set subver = (pkgver | regex_search('11\\.0\\.(\\d+)', '\\1') | first | default('0') | int) %}
+              {{ 'Vulnerable' if subver <= 2 else 'No vulnerable' }}
+            {% elif pkgver == '' %}
+              Indeterminado
+            {% else %}
+              No vulnerable
+            {% endif %}
         } ] }}"
       loop: "{{ reports_list }}"
       loop_control:
         label: "{{ item.host }}"
       changed_when: false
+
 
     - name: "Generar HTML final"
       template:
