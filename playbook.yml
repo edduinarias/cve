@@ -139,10 +139,14 @@
       loop: "{{ found_reports.files | default([]) }}"
       changed_when: false
 
+    - name: "Inicializar resumen de hosts"
+      set_fact:
+        summary_hosts_versions: []
+
     - name: "Construir resumen de hosts y evaluar vulnerabilidad"
       vars:
         pkgver_str: "{{ (item.tomcat_pkg_version | default([]) | first | default('')) }}"
-        subver_9:  >-
+        subver_9: >-
           {% set match = pkgver_str | regex_search('9\\.0\\.(\\d+)', '\\1') %}
           {{ (match[0] if match is not none else '0') | int }}
         subver_10: >-
@@ -152,7 +156,7 @@
           {% set match = pkgver_str | regex_search('11\\.0\\.(\\d+)', '\\1') %}
           {{ (match[0] if match is not none else '0') | int }}
       set_fact:
-        summary_hosts_versions: "{{ summary_hosts_versions | default([]) + [ {
+        summary_hosts_versions: "{{ summary_hosts_versions + [ {
           'host': item.host,
           'tomcat_pkg_version_display': (
             item.tomcat_pkg_version | default([]) | length > 0
@@ -180,7 +184,6 @@
       loop_control:
         label: "{{ item.host }}"
       changed_when: false
-
 
 
     - name: "Generar HTML final"
