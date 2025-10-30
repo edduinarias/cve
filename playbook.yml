@@ -116,11 +116,13 @@
 # Consolidación en localhost
 # ------------------------------
 - name: "Generar informe HTML consolidado en localhost y moverlo a LNXADMUX01"
-  hosts: LNXADMUX01
+  hosts: localhost
+  connection: local
   gather_facts: false
   vars:
     tmp_json_dir: "/tmp/cve24813_reports"
     output_html: "/tmp/cve24813_report_{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}.html"
+
   tasks:
     - name: "Leer todos los JSONs generados"
       find:
@@ -136,55 +138,22 @@
     - name: "Cargar JSONs en lista"
       set_fact:
         reports_list: "{{ reports_list | default([]) + [ (lookup('file', item.path) | from_json ) ] }}"
-      loop: "{{ found_reports.files | default([]) }}"
+      loop: "{{ found_reports.files }}"
       changed_when: false
 
-    - name: "Inicializar resumen de hosts"
+    - name: "Construir resumen de hosts con versiones Tomcat"
       set_fact:
-        summary_hosts_versions: []
-
-    - name: "Construir resumen de hosts y evaluar vulnerabilidad"
-      vars:
-        pkgver_str: "{{ (item.tomcat_pkg_version | default([]) | first | default('')) }}"
-        subver_9: >-
-          {% set match = pkgver_str | regex_search('9\\.0\\.(\\d+)', '\\1') %}
-          {{ (match[0] if match is not none else '0') | int }}
-        subver_10: >-
-          {% set match = pkgver_str | regex_search('10\\.1\\.(\\d+)', '\\1') %}
-          {{ (match[0] if match is not none else '0') | int }}
-        subver_11: >-
-          {% set match = pkgver_str | regex_search('11\\.0\\.(\\d+)', '\\1') %}
-          {{ (match[0] if match is not none else '0') | int }}
-      set_fact:
-        summary_hosts_versions: "{{ summary_hosts_versions + [ {
+        summary_hosts_versions: "{{ summary_hosts_versions | default([]) + [ {
           'host': item.host,
           'tomcat_pkg_version_display': (
             item.tomcat_pkg_version | default([]) | length > 0
           ) | ternary((item.tomcat_pkg_version | first), 'unknown'),
-          'catalina_raw': (item.catalina_version_raw | default('')),
-          'vulnerability_status':
-            (
-              (
-                (pkgver_str is search('9\\.0\\.(\\d+)') and subver_9 <= 98)
-                or
-                (pkgver_str is search('10\\.1\\.(\\d+)') and subver_10 <= 34)
-                or
-                (pkgver_str is search('11\\.0\\.(\\d+)') and subver_11 <= 2)
-              )
-            )
-            | ternary(
-                'Vulnerable',
-                (
-                  (pkgver_str != '')
-                  | ternary('No vulnerable', 'Indeterminado')
-                )
-              )
+          'catalina_raw': (item.catalina_version_raw | default(''))
         } ] }}"
       loop: "{{ reports_list }}"
       loop_control:
         label: "{{ item.host }}"
       changed_when: false
-
 
     - name: "Generar HTML final"
       template:
