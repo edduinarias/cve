@@ -147,21 +147,30 @@
           'host': item.host,
           'tomcat_pkg_version_display': (
             item.tomcat_pkg_version | default([]) | length > 0
-          ) | ternary((item.tomcat_pkg_version | first), 'unknown'),
+          ) | ternary((item.tomcat_pkg_version | first | default('unknown')), 'unknown'),
           'catalina_raw': (item.catalina_version_raw | default('')),
           'vulnerability_status':
             (
               (
-                (item.tomcat_pkg_version | first | regex_search('9\\.0\\.(\\d+)', '\\1') | first | int(0)) <= 98
+                ((item.tomcat_pkg_version | first | default('') | regex_search('9\\.0\\.(\\d+)', '\\1') | first | default('0') | int) <= 98)
               ) or
               (
-                (item.tomcat_pkg_version | first | regex_search('10\\.1\\.(\\d+)', '\\1') | first | int(0)) <= 34
+                ((item.tomcat_pkg_version | first | default('') | regex_search('10\\.1\\.(\\d+)', '\\1') | first | default('0') | int) <= 34)
               ) or
               (
-                (item.tomcat_pkg_version | first | regex_search('11\\.0\\.(\\d+)', '\\1') | first | int(0)) <= 2
+                ((item.tomcat_pkg_version | first | default('') | regex_search('11\\.0\\.(\\d+)', '\\1') | first | default('0') | int) <= 2)
               )
             )
-            | ternary('Vulnerable', 'No vulnerable')
+            | ternary(
+                (
+                  (item.tomcat_pkg_version | default([]) | length > 0)
+                  | ternary('Vulnerable', 'Indeterminado')
+                ),
+                (
+                  (item.tomcat_pkg_version | default([]) | length > 0)
+                  | ternary('No vulnerable', 'Indeterminado')
+                )
+              )
         } ] }}"
       loop: "{{ reports_list }}"
       loop_control:
